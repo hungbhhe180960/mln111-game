@@ -1,464 +1,535 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import TypingText from '../ui/TypingText'
-import useSound  from '../../hooks/useSound'
+import useSound from '../../hooks/useSound'
 import { useGameStore } from '../../stores/gameStore'
-import ENDINGS, { checkEnding } from '../../data/endings'
-import EVENTS from '../../data/events'
-import { AiOutlineCheck, AiOutlineQuestion, AiOutlineWarning } from 'react-icons/ai'
-import { FaGavel, FaDice } from 'react-icons/fa'
+
+/* --- INLINE SVG ICONS (Thay thế lucide-react để tránh lỗi build) --- */
+function TriangleAlert({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+        </svg>
+    )
+}
+
+function Gavel({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="m14 13-7.5 7.5c-.83.83-2.17.83-3 0 0 0 0 0 0 0a2.12 2.12 0 0 1 0-3L11 10" />
+            <path d="m16 16 6-6" />
+            <path d="m8 8 6-6" />
+            <path d="m9 7 8 8" />
+            <path d="m21 11-8-8" />
+        </svg>
+    )
+}
+
+function Dices({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <rect width="12" height="12" x="2" y="10" rx="2" ry="2" />
+            <path d="m17.92 14 3.5-3.5a2.24 2.24 0 0 0 0-3l-5-4.92a2.24 2.24 0 0 0-3 0L10 6" />
+            <path d="M6 18h.01" />
+            <path d="M10 14h.01" />
+            <path d="M15 6h.01" />
+            <path d="M18 9h.01" />
+        </svg>
+    )
+}
+
+function Pencil({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            <path d="m15 5 4 4" />
+        </svg>
+    )
+}
+
+function Clock({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+        </svg>
+    )
+}
+
+function BookOpen({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+        </svg>
+    )
+}
+
+function Brain({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z" />
+            <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" />
+        </svg>
+    )
+}
+
+function HeartPulse({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+            <path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27" />
+        </svg>
+    )
+}
 
 /**
- * ExamScreen
- *
- * Implements Day 7 exam flow:
- *  - intro countdown with tick sound
- *  - branch by health/knowledge
- *  - Easy / Normal / Hard modes
- *
- * Uses zustand store (useGameStore) for stats and flags, and autosaves results.
+ * EXAM SCREEN - PHIÊN BẢN CHI TIẾT (FULL)
+ * * Features:
+ * 1. Intro dramatic: Đếm ngược, không khí căng thẳng.
+ * 2. Cheat Mechanics: Quyết định dùng phao với rủi ro thực tế.
+ * 3. Exam Simulation:
+ * - Thanh tiến độ chạy theo thời gian thực.
+ * - Flavor text (suy nghĩ nhân vật) thay đổi dựa trên chỉ số Knowledge/Stress.
+ * - Hiệu ứng hình ảnh: Rung lắc khi Stress cao, mờ mắt khi Health thấp.
+ * 4. Dynamic Outcome: Kết quả dựa trên tổng hòa các chỉ số + may mắn.
  */
 
-/* ---------- Helpers ---------- */
-
-function clamp(v: number, min = 0, max = 100) {
-    return Math.max(min, Math.min(max, v))
+// Các câu thoại nội tâm ngẫu nhiên khi làm bài
+const FLAVOR_TEXTS = {
+    high_knowledge: [
+        "Câu này mình đã ôn kỹ ở Day 4 rồi!",
+        "Viết mỏi cả tay nhưng mà sướng!",
+        "Trúng tủ! Thầy giáo đúng là cứu tinh.",
+        "Kiến thức tuôn ra như suối...",
+        "Cặp phạm trù này dễ ợt.",
+    ],
+    low_knowledge: [
+        "Đề này tiếng Việt hay tiếng ngoài hành tinh vậy?",
+        "Thôi chết, phần này hôm qua ngủ quên chưa đọc...",
+        "Cắn bút nãy giờ chưa viết được chữ nào.",
+        "Liếc bài đứa bên cạnh được không nhỉ?",
+        "Khoanh bừa câu C vậy, C là chân ái.",
+        "Cầu mong giám thị dễ tính..."
+    ],
+    high_stress: [
+        "Tim đập nhanh quá, không thở nổi...",
+        "Tay run quá, chữ viết như gà bới.",
+        "Mình sắp xỉu rồi...",
+        "Mọi người viết nhanh quá, mình không kịp mất!",
+    ],
+    cheat_success: [
+        "Hú hồn, giám thị vừa đi qua...",
+        "Chép được nguyên một đoạn dài, ngon!",
+        "Cảm giác tội lỗi nhưng mà... điểm cao là được.",
+    ]
 }
 
-/**
- * calculateExamScore:
- * base score = knowledge / 10 + random(-1, +1)
- * modifiers via flags:
- *  - deep_understanding => +0.5
- *  - surface_learning => -0.5
- * final clamp 0..10, return number with one decimal
- */
-function calculateExamScore(knowledge: number, flags: Record<string, boolean>) {
-    const baseRand = (Math.random() * 2 - 1) // -1..+1
-    let score = knowledge / 10 + baseRand
-    if (flags.deep_understanding) score += 0.5
-    if (flags.surface_learning || flags.surface_learning_2) score -= 0.5
-    // cheat flags and miracle handling happen in gameplay branches, not here
-    score = Math.max(0, Math.min(10, Math.round(score * 10) / 10))
-    return score
-}
+type Stage = 'intro' | 'cheat_decision' | 'working' | 'caught' | 'submission' | 'waiting'
 
-/* ---------- Subscreens ---------- */
+// NOISE SVG DATA URI (Thay thế link chết)
+const NOISE_BG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E")`
 
-function CrashInExamScreen({ onResolve }: { onResolve?: () => void }) {
-    // Very dramatic crash screen
-    useEffect(() => {
-        // ensure onResolve called maybe after some delay to allow store to show hospital flow
-        const t = setTimeout(() => {
-            onResolve?.()
-        }, 2200)
-        return () => clearTimeout(t)
-    }, [onResolve])
-
-    return (
-        <div className="w-full h-full flex items-center justify-center p-6">
-            <div className="max-w-2xl text-center bg-black/70 p-8 rounded-2xl text-white">
-                <div className="text-3xl font-bold mb-2">Xe Cấp Cứu 115</div>
-                <div className="text-lg mb-4">Bạn bị kiệt sức giữa phòng thi. Cấp cứu được gọi ngay lập tức.</div>
-                <div className="text-sm text-neutral-300">Sức khỏe là vốn quý nhất — hãy chơi lại và chăm sóc bản thân.</div>
-            </div>
-        </div>
-    )
-}
-
-function ExamEasyMode({
-                          score,
-                          onFinish,
-                      }: {
-    score: number
-    onFinish?: (score: number) => void
-}) {
-    const [progress, setProgress] = useState(0) // 0..40
-    useEffect(() => {
-        let mounted = true
-        const total = 40
-        const interval = setInterval(() => {
-            if (!mounted) return
-            setProgress(p => {
-                const next = p + Math.ceil(Math.random() * 3) // fast progress
-                if (next >= total) {
-                    clearInterval(interval)
-                    setTimeout(() => onFinish?.(score), 600)
-                    return total
-                }
-                return next
-            })
-        }, 60)
-        return () => {
-            mounted = false
-            clearInterval(interval)
-        }
-    }, [onFinish, score])
-
-    return (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-6 p-6">
-            <div className="text-2xl font-semibold text-green-200">Bạn làm rất tốt — Câu hỏi rơi đều vào tầm tay</div>
-            <div className="grid grid-cols-10 gap-2 w-full max-w-3xl">
-                {Array.from({ length: 40 }).map((_, i) => {
-                    const done = i < progress
-                    return (
-                        <div
-                            key={i}
-                            className={`h-6 rounded-md flex items-center justify-center ${
-                                done ? 'bg-green-500 text-white' : 'bg-white/10 text-neutral-300'
-                            }`}
-                        >
-                            {done ? <AiOutlineCheck /> : <span className="text-xs">{i + 1}</span>}
-                        </div>
-                    )
-                })}
-            </div>
-            <div className="text-lg text-white/90">Kết thúc bài thi... Điểm dự kiến: <strong>{score}</strong></div>
-        </div>
-    )
-}
-
-function ExamNormalMode({
-                            score,
-                            onFinish,
-                        }: {
-    score: number
-    onFinish?: (score: number) => void
-}) {
-    const [progress, setProgress] = useState(0)
-    useEffect(() => {
-        let mounted = true
-        const total = 40
-        const interval = setInterval(() => {
-            if (!mounted) return
-            setProgress(p => {
-                const next = p + (Math.random() < 0.6 ? 1 : 2) // moderate
-                if (next >= total) {
-                    clearInterval(interval)
-                    setTimeout(() => onFinish?.(score), 900)
-                    return total
-                }
-                return next
-            })
-        }, 120)
-        return () => {
-            mounted = false
-            clearInterval(interval)
-        }
-    }, [score, onFinish])
-
-    return (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-6 p-6">
-            <div className="text-2xl font-semibold text-amber-200">Bạn làm ổn — Có lúc phân vân nhưng qua được</div>
-            <div className="grid grid-cols-10 gap-2 w-full max-w-3xl">
-                {Array.from({ length: 40 }).map((_, i) => {
-                    let cls = 'bg-white/10 text-neutral-300'
-                    if (i < progress) {
-                        // some of them are unsure
-                        cls = i % 3 === 0 ? 'bg-yellow-500 text-white' : 'bg-green-500 text-white'
-                    }
-                    return (
-                        <div key={i} className={`h-6 rounded-md flex items-center justify-center ${cls}`}>
-                            {i < progress ? (i % 3 === 0 ? <AiOutlineQuestion /> : <AiOutlineCheck />) : <span className="text-xs">{i + 1}</span>}
-                        </div>
-                    )
-                })}
-            </div>
-            <div className="text-lg text-white/90">Kết quả dự kiến: <strong>{score}</strong></div>
-        </div>
-    )
-}
-
-function ExamHardMode({
-                          onResult,
-                          hasCheat,
-                          onUseCheat,
-                      }: {
-    onResult: (result: { caught?: boolean; score: number }) => void
-    hasCheat: boolean
-    onUseCheat: () => void
-}) {
-    const [stage, setStage] = useState<'present' | 'choice' | 'resolving' | 'done'>('present')
-    const [outcome, setOutcome] = useState<{ caught?: boolean; score: number } | null>(null)
-
-    useEffect(() => {
-        const t = setTimeout(() => setStage('choice'), 800)
-        return () => clearTimeout(t)
-    }, [])
-
-    function handleCheat() {
-        setStage('resolving')
-        // simulate detection 50/50
-        const caught = Math.random() < 0.5
-        const score = caught ? 0 : 4 + Math.random() * 1.5 // low pass if success
-        setTimeout(() => {
-            setOutcome({ caught, score: Math.round(score * 10) / 10 })
-            setStage('done')
-            onResult({ caught, score: Math.round(score * 10) / 10 })
-        }, 900)
-        onUseCheat()
-    }
-
-    function handleGuess() {
-        setStage('resolving')
-        const luck = Math.random() // chance influenced by flags could be passed in
-        const score = luck < 0.35 ? 2 + Math.random() * 1.5 : 4 + Math.random() * 1.5
-        setTimeout(() => {
-            const final = Math.round(score * 10) / 10
-            setOutcome({ score: final })
-            setStage('done')
-            onResult({ score: final })
-        }, 800)
-    }
-
-    return (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-6 p-6">
-            {stage === 'present' && <div className="text-2xl text-red-300">Không hiểu gì cả...</div>}
-
-            {stage === 'choice' && (
-                <div className="flex flex-col gap-4 items-center">
-                    <div className="text-lg text-white/90">Bạn có hai lựa chọn:</div>
-                    <div className="flex gap-4">
-                        <button
-                            onClick={handleCheat}
-                            disabled={!hasCheat}
-                            className={`px-4 py-2 rounded-md font-semibold ${hasCheat ? 'bg-yellow-500 text-black' : 'bg-white/6 text-neutral-400 cursor-not-allowed'}`}
-                        >
-                            <div className="flex items-center gap-2"><FaGavel /> Gian lận</div>
-                        </button>
-
-                        <button onClick={handleGuess} className="px-4 py-2 rounded-md bg-white/8 text-white font-semibold">
-                            <div className="flex items-center gap-2"><FaDice /> Khoanh bừa</div>
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {stage === 'resolving' && <div className="text-white/80">Đang quyết định... <span className="inline-block animate-pulse">.</span></div>}
-
-            {stage === 'done' && outcome && (
-                <div className="text-center">
-                    {outcome.caught ? (
-                        <div className="text-red-400 text-lg font-bold">Bị bắt gian lận! Kết quả: Bị đình chỉ</div>
-                    ) : (
-                        <div className="text-green-300 text-lg font-semibold">Kết quả: {outcome.score} (tạm thời)</div>
-                    )}
-                </div>
-            )}
-        </div>
-    )
-}
-
-/* ---------- Main Component ---------- */
-
-export default function ExamScreen() {
+export default function ExamScreen({ onFinished }: { onFinished?: () => void }) {
+    // ===== Store =====
     const stats = useGameStore(s => s.stats)
     const flags = useGameStore(s => s.flags)
     const addFlag = useGameStore(s => s.addFlag)
     const updateStats = useGameStore(s => s.updateStats)
-    const saveGame = useGameStore(s => s.saveGame)
-    const setEvents = useGameStore(s => s.setEvents)
-    const setEndings = useGameStore(s => s.setEndings)
+    const evaluateEnding = useGameStore(s => s.evaluateEnding)
 
-    const [countdown, setCountdown] = useState(5) // 5s countdown
-    const [introDone, setIntroDone] = useState(false)
-    const [mode, setMode] = useState<'easy' | 'normal' | 'hard' | null>(null)
-    const [finalScore, setFinalScore] = useState<number | null>(null)
-    const [cheatCaught, setCheatCaught] = useState<boolean | null>(null)
+    // ===== Local State =====
+    const [stage, setStage] = useState<Stage>('intro')
+    const [progress, setProgress] = useState(0)
+    const [currentThought, setCurrentThought] = useState("")
+    const [isCheatingActive, setIsCheatingActive] = useState(false)
 
-    const { play, stop } = useSound()
+    // Refs
+    const progressInterval = useRef<number | null>(null)
+    const thoughtInterval = useRef<number | null>(null)
 
+    // Sound
+    const { play, stop, playSfx } = useSound()
+
+    // ===== PHASES LOGIC =====
+
+    // 1. Init & Intro
     useEffect(() => {
-        // preload events/endings into store (if not already)
-        setEvents(Object.values(EVENTS))
-        setEndings(ENDINGS)
-        // start ticking sound
-        play('/assets/sounds/clock_tick.mp3', 0.35).catch(() => {})
-        let mounted = true
-        const t = setInterval(() => {
-            setCountdown(c => {
-                if (!mounted) return c
-                if (c <= 1) {
-                    clearInterval(t)
-                    stop()
-                    setIntroDone(true)
-                    return 0
-                }
-                return c - 1
-            })
-        }, 1000)
-        return () => {
-            mounted = false
-            clearInterval(t)
-            stop()
+        play('bgm_exam', 0.6, true) // Nhạc nền dồn dập
+
+        // Hiệu ứng tim đập nếu stress cao
+        if (stats.stress > 70) {
+            const beat = setInterval(() => {
+                playSfx('/assets/sounds/heartbeat.mp3', 0.3)
+            }, 1000)
+            return () => clearInterval(beat)
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+
+        // Chuyển sang phase tiếp theo sau intro
+        const t = setTimeout(() => {
+            if (flags.has_cheat_sheet) {
+                setStage('cheat_decision')
+            } else {
+                startExamSimulation(false)
+            }
+        }, 4000)
+
+        return () => {
+            clearTimeout(t)
+            stop()
+            if (progressInterval.current) clearInterval(progressInterval.current)
+            if (thoughtInterval.current) clearInterval(thoughtInterval.current)
+        }
     }, [])
 
-    // Decide branch based on health/knowledge
-    useEffect(() => {
-        if (!introDone) return
-        if (stats.health <= 0) {
-            setMode('hard') // crash handled separately
-            return
-        }
-        if (stats.knowledge > 80) setMode('easy')
-        else if (stats.knowledge >= 50) setMode('normal')
-        else setMode('hard')
-    }, [introDone, stats.health, stats.knowledge])
+    // 2. Logic Cheat Decision
+    const handleCheatDecision = (useCheat: boolean) => {
+        if (useCheat) {
+            // Roll dice: 50% rủi ro (có thể thay đổi tùy độ khó)
+            // Nếu health thấp, khả năng bị bắt cao hơn do lóng ngóng
+            const failChance = stats.health < 30 ? 0.6 : 0.5
+            const isCaught = Math.random() < failChance
 
-    // compute base calculated score for easy/normal cases
-    const preScore = useMemo(() => {
-        return calculateExamScore(stats.knowledge, flags)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [stats.knowledge, JSON.stringify(flags)])
-
-    function handleFinish(score: number) {
-        // store result: you could set flags for miracle or cheat outcomes here
-        setFinalScore(score)
-        // convert to internal consequences: adjust stress/health maybe
-        // For simplicity, apply minor stress change based on score
-        const stressDelta = score >= 8 ? -20 : score >= 5 ? 5 : 25
-        updateStats({ stress: stressDelta })
-        // autosave
-        saveGame()
-    }
-
-    function handleHardResult(result: { caught?: boolean; score: number }) {
-        if (result.caught) {
-            // mark cheat caught flag and set score very low
-            addFlag('cheat_caught')
-            setCheatCaught(true)
-            setFinalScore(0)
-            // possible store effects (penalty)
-            updateStats({ stress: 30 })
-        } else {
-            // success via cheat or lucky guess
-            if (result.score >= 4 && result.score < 6) {
+            if (isCaught) {
+                setStage('caught')
+                addFlag('cheat_caught')
+                playSfx('/assets/sounds/siren.mp3', 1.0)
+                return
+            } else {
+                // Cheat trót lọt
                 addFlag('cheat_success')
+                updateStats({ knowledge: 25, stress: 10 }) // Tăng điểm nhưng cũng tăng stress vì sợ
+                setIsCheatingActive(true)
+                startExamSimulation(true)
             }
-            setCheatCaught(false)
-            setFinalScore(result.score)
-            updateStats({ stress: -10 })
+        } else {
+            // Honest
+            addFlag('integrity_bonus') // Có thể dùng cho Good Ending
+            updateStats({ stress: -5 }) // Nhẹ lòng
+            startExamSimulation(false)
         }
-        saveGame()
     }
 
-    // Final resolution: after finalScore determined, check endings via store
-    useEffect(() => {
-        if (finalScore === null) return
-        // Map finalScore into knowledge to reflect final assessment (not mandatory)
-        // Here we keep stats.knowledge but endings use stats so optionally we can boost knowledge for evaluation.
-        // We'll set a temporary knowledge bump proportional to finalScore for evaluation
-        const mappedKnowledge = Math.round(finalScore * 10)
-        updateStats({ knowledge: mappedKnowledge - stats.knowledge }) // delta
-        // Autosave and then check endings
-        saveGame()
-        const ending = useGameStore.getState().checkEnding()
-        if (ending) {
-            // You might want to navigate to an Ending screen; for now we just log
-            console.info('Ending triggered:', ending.id)
-            // set a runtime flag to allow other components to transition
-            addFlag(`ending_${ending.id}`)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [finalScore])
+    // 3. Exam Simulation (Main Loop)
+    const startExamSimulation = (isCheating: boolean) => {
+        setStage('working')
+        let p = 0
+        const duration = 8000 // 8 giây mô phỏng 90 phút thi
+        const tick = 100
 
-    // Crash handling
-    if (stats.health <= 0) {
-        return <CrashInExamScreen onResolve={() => {
-            // move to hospital flow: set hospitalized flag & save; the store/hospital screen handles the rest
-            addFlag('cheated_cause_crash') // optional
-            useGameStore.getState().addFlag('hospitalized_day7')
-            useGameStore.getState().saveGame()
-        }} />
+        progressInterval.current = window.setInterval(() => {
+            p += (tick / duration) * 100
+            if (p >= 100) {
+                p = 100
+                finishExam()
+            }
+            setProgress(p)
+        }, tick)
+
+        // Random thoughts loop
+        const thoughtTick = setInterval(() => {
+            updateFlavorText(isCheating)
+        }, 2500)
+        thoughtInterval.current = thoughtTick
+
+        // Initial thought
+        updateFlavorText(isCheating)
     }
+
+    const updateFlavorText = (isCheating: boolean) => {
+        let pool = [...FLAVOR_TEXTS.low_knowledge]
+
+        if (stats.knowledge > 60) pool = [...FLAVOR_TEXTS.high_knowledge]
+        if (stats.stress > 80) pool = [...pool, ...FLAVOR_TEXTS.high_stress]
+        if (isCheating) pool = [...pool, ...FLAVOR_TEXTS.cheat_success]
+
+        const randomText = pool[Math.floor(Math.random() * pool.length)]
+        setCurrentThought(randomText)
+    }
+
+    // 4. Finish & Submit
+    const finishExam = () => {
+        if (progressInterval.current) clearInterval(progressInterval.current)
+        if (thoughtInterval.current) clearInterval(thoughtInterval.current)
+
+        setStage('submission')
+        playSfx('/assets/sounds/bell.mp3') // Tiếng trống hết giờ
+
+        // Tính toán chỉ số cuối cùng
+        let finalKnowledge = stats.knowledge
+
+        // Logic Flag impacts
+        if (flags.deep_understanding) finalKnowledge += 10
+        if (flags.surface_learning) finalKnowledge -= 5 // Học vẹt dễ quên
+        if (flags.all_in_final_night) finalKnowledge -= 10 // Mệt quá làm bài kém
+        if (flags.stomach_ache) finalKnowledge -= 15 // Đau bụng làm bài kém
+
+        // Update stats thầm lặng để store tính ending
+        updateStats({ knowledge: Math.max(0, Math.min(100, finalKnowledge - stats.knowledge)) })
+
+        // Chuyển sang màn hình chờ kết quả
+        setTimeout(() => {
+            setStage('waiting')
+            // Gọi store tính ending
+            if (typeof evaluateEnding === 'function') {
+                evaluateEnding()
+            }
+            // Delay 3s để tạo kịch tính rồi thoát
+            setTimeout(() => {
+                onFinished?.()
+            }, 3000)
+        }, 2000)
+    }
+
+    // ===== RENDER HELPERS =====
+
+    // Hiệu ứng rung lắc màn hình nếu stress cao
+    const shakeVariants = {
+        idle: { x: 0 },
+        shaking: { x: [-2, 2, -2, 2, 0], transition: { repeat: Infinity, duration: 0.5 } }
+    }
+
+    const isStressed = stats.stress > 75
 
     return (
-        <div className="w-screen h-screen relative bg-[#060718] text-white overflow-hidden">
-            {/* Background exam hall */}
-            <motion.img
-                src="/images/exam_hall.jpg"
-                alt="exam hall"
-                className="absolute inset-0 w-full h-full object-cover"
-                initial={{ scale: 1.02, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 0.9 }}
+        <motion.div
+            className="fixed inset-0 z-50 bg-black text-white font-sans overflow-hidden flex flex-col items-center justify-center p-6"
+            variants={isStressed ? shakeVariants : {}}
+            animate={isStressed ? "shaking" : "idle"}
+        >
+            {/* Background Texture & Vignette */}
+            <div
+                className="absolute inset-0 opacity-10 pointer-events-none"
+                style={{ backgroundImage: NOISE_BG }}
             />
+            <div className="absolute inset-0 bg-radial-gradient from-transparent to-black/80 pointer-events-none" />
 
-            <div className="absolute inset-0 bg-black/50" />
+            <AnimatePresence mode='wait'>
 
-            <div className="relative z-20 w-full h-full flex flex-col items-center justify-center p-6">
-                {!introDone ? (
-                    <motion.div initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-center max-w-2xl">
-                        <div className="text-xl md:text-3xl font-bold mb-3">Phòng thi 101-A3</div>
-                        <div className="mb-6">
-                            <TypingText text={'Giám thị: "Các em chuẩn bị, 5 phút nữa phát đề!"'} speed={28} />
+                {/* --- STAGE: INTRO --- */}
+                {stage === 'intro' && (
+                    <motion.div
+                        key="intro"
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 1.1, filter: "blur(10px)" }}
+                        transition={{ duration: 0.8 }}
+                        className="text-center z-10"
+                    >
+                        <motion.div
+                            initial={{ y: -50 }} animate={{ y: 0 }}
+                            className="text-yellow-500 text-xl font-bold tracking-[0.5em] mb-4"
+                        >
+                            DAY 7
+                        </motion.div>
+                        <h1 className="text-6xl md:text-8xl font-black mb-6 text-white tracking-tighter drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
+                            PHÒNG THI
+                        </h1>
+                        <p className="text-xl text-neutral-400 max-w-md mx-auto">
+                            Thời khắc định mệnh. Hãy hít thở sâu.
+                        </p>
+                    </motion.div>
+                )}
+
+                {/* --- STAGE: CHEAT DECISION --- */}
+                {stage === 'cheat_decision' && (
+                    <motion.div
+                        key="cheat"
+                        initial={{ opacity: 0, y: 50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -50 }}
+                        className="max-w-lg w-full bg-neutral-900 border border-red-500/50 p-8 rounded-2xl shadow-2xl z-10 relative overflow-hidden"
+                    >
+                        <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse" />
+
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center text-red-500">
+                                <TriangleAlert className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <h2 className="text-2xl font-bold text-white">CƠ HỘI NGUY HIỂM</h2>
+                                <p className="text-red-400 text-sm">Giám thị đang lơ là...</p>
+                            </div>
                         </div>
 
-                        <div className="flex items-center gap-6 justify-center">
-                            <div className="text-6xl font-mono">{countdown}</div>
-                            <div className="text-sm text-neutral-200">Đếm ngược đến giờ phát đề</div>
+                        <p className="text-neutral-300 mb-8 leading-relaxed">
+                            Trong túi áo bạn là tờ phao thi đã chuẩn bị. Sử dụng nó có thể giúp bạn qua môn dễ dàng,
+                            nhưng nếu bị bắt, mọi thứ sẽ chấm hết (Đình chỉ thi).
+                        </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <button
+                                onClick={() => handleCheatDecision(false)}
+                                className="group relative px-6 py-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 transition-all border border-white/5"
+                            >
+                                <div className="flex items-center justify-center gap-2 font-bold text-white">
+                                    <Gavel className="w-4 h-4" />
+                                    Tự lực cánh sinh
+                                </div>
+                                <div className="text-xs text-neutral-500 mt-1 group-hover:text-neutral-400">
+                                    Giữ lại danh dự (Stress giảm)
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => handleCheatDecision(true)}
+                                className="group relative px-6 py-4 rounded-xl bg-red-900/50 hover:bg-red-800/50 transition-all border border-red-500/30"
+                            >
+                                <div className="flex items-center justify-center gap-2 font-bold text-red-100">
+                                    <Dices className="w-4 h-4" />
+                                    Dùng phao thi
+                                </div>
+                                <div className="text-xs text-red-400 mt-1 group-hover:text-red-300">
+                                    50% bị bắt (Knowledge tăng mạnh)
+                                </div>
+                            </button>
                         </div>
                     </motion.div>
-                ) : (
-                    <div className="w-full max-w-4xl">
-                        {/* Camera zoom into paper */}
-                        <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.6 }}>
-                            {mode === 'easy' && finalScore == null && (
-                                <ExamEasyMode score={preScore} onFinish={s => handleFinish(s)} />
-                            )}
-
-                            {mode === 'normal' && finalScore == null && (
-                                <ExamNormalMode score={preScore} onFinish={s => handleFinish(s)} />
-                            )}
-
-                            {mode === 'hard' && finalScore == null && (
-                                <ExamHardMode
-                                    hasCheat={!!flags.has_cheat_sheet}
-                                    onUseCheat={() => {
-                                        // mark that player attempted cheat (flag)
-                                        useGameStore.getState().addFlag('attempted_cheat')
-                                    }}
-                                    onResult={res => handleHardResult(res)}
-                                />
-                            )}
-
-                            {finalScore !== null && (
-                                <div className="mt-6 bg-black/50 p-6 rounded-lg text-center">
-                                    <div className="text-2xl font-bold">Bài thi hoàn thành</div>
-                                    <div className="text-lg mt-2">Điểm của bạn: <strong>{finalScore}</strong>/10</div>
-
-                                    {cheatCaught ? (
-                                        <div className="mt-4 text-red-400 font-semibold flex items-center justify-center gap-2">
-                                            <AiOutlineWarning /> Bạn đã bị bắt gian lận — hậu quả nghiêm trọng.
-                                        </div>
-                                    ) : null}
-
-                                    <div className="mt-6 flex justify-center gap-3">
-                                        <button
-                                            onClick={() => {
-                                                // go to post exam event or ending flow
-                                                useGameStore.getState().saveGame()
-                                                const ending = useGameStore.getState().checkEnding()
-                                                if (ending) {
-                                                    // set event to post_exam or ending flow - keep simple: set flag
-                                                    useGameStore.getState().addFlag(`ending_${ending.id}`)
-                                                }
-                                                // optionally navigate to post exam event:
-                                                useGameStore.getState().setEvents(Object.values(EVENTS))
-                                            }}
-                                            className="px-4 py-2 rounded-md bg-primary text-white"
-                                        >
-                                            Xem kết quả (chờ email)
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </motion.div>
-                    </div>
                 )}
-            </div>
-        </div>
+
+                {/* --- STAGE: CAUGHT (BAD ENDING TRIGGER) --- */}
+                {stage === 'caught' && (
+                    <motion.div
+                        key="caught"
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="text-center z-20"
+                    >
+                        <motion.div
+                            animate={{ rotate: [-5, 5, -5, 5, 0] }}
+                            transition={{ repeat: Infinity, duration: 0.2 }}
+                            className="text-8xl mb-4"
+                        >
+                            🚨
+                        </motion.div>
+                        <h1 className="text-5xl font-black text-red-600 mb-4 bg-black px-4 py-2 inline-block">
+                            BỊ BẮT QUẢ TANG!
+                        </h1>
+                        <p className="text-xl text-white">Giám thị đã lập biên bản. Môn học bị hủy.</p>
+
+                        <div className="mt-8">
+                            <button
+                                onClick={() => {
+                                    evaluateEnding()
+                                    onFinished?.()
+                                }}
+                                className="px-6 py-3 bg-white text-black font-bold rounded hover:bg-neutral-200"
+                            >
+                                Chấp nhận số phận
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
+
+                {/* --- STAGE: WORKING (SIMULATION) --- */}
+                {stage === 'working' && (
+                    <motion.div
+                        key="working"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="w-full max-w-2xl z-10"
+                    >
+                        {/* Status Header */}
+                        <div className="flex justify-between items-end mb-6 px-2">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 bg-white/10 rounded-lg backdrop-blur">
+                                    <Pencil className={`w-6 h-6 text-white ${progress < 100 ? 'animate-bounce' : ''}`} />
+                                </div>
+                                <div>
+                                    <div className="text-xs text-neutral-400 uppercase tracking-wider">Trạng thái</div>
+                                    <div className="font-bold text-lg">Đang làm bài...</div>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <div className="flex items-center justify-end gap-2 text-red-400 mb-1">
+                                    <Clock className="w-4 h-4" />
+                                    <span className="font-mono font-bold text-xl">
+                                        {Math.floor((100 - progress) * 0.9)}:00
+                                    </span>
+                                </div>
+                                <div className="text-xs text-neutral-500">Thời gian còn lại</div>
+                            </div>
+                        </div>
+
+                        {/* Progress Bar Container */}
+                        <div className="relative h-6 bg-neutral-800 rounded-full overflow-hidden border border-white/10 shadow-inner mb-8">
+                            <motion.div
+                                className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-600 via-purple-500 to-pink-500"
+                                style={{ width: `${progress}%` }}
+                                transition={{ ease: "linear" }}
+                            />
+                            {/* Stripes overlay */}
+                            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/diagonal-stripes.png')] opacity-20" />
+                        </div>
+
+                        {/* Dynamic Thought Bubble */}
+                        <div className="h-24 flex items-center justify-center">
+                            <AnimatePresence mode='wait'>
+                                <motion.div
+                                    key={currentThought}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -10 }}
+                                    className="bg-white text-black px-6 py-4 rounded-xl rounded-bl-none shadow-lg max-w-md text-center font-medium italic relative"
+                                >
+                                    "{currentThought}"
+                                    {/* Triangle pointer */}
+                                    <div className="absolute -bottom-2 left-4 w-4 h-4 bg-white transform rotate-45" />
+                                </motion.div>
+                            </AnimatePresence>
+                        </div>
+
+                        {/* Stats Indicators (Subtle) */}
+                        <div className="mt-12 flex justify-center gap-8 opacity-60">
+                            <div className="flex items-center gap-2">
+                                <Brain className="w-4 h-4 text-blue-400" />
+                                <span className="text-xs">{stats.knowledge > 50 ? 'Kiến thức ổn' : 'Mất gốc'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <HeartPulse className="w-4 h-4 text-red-400" />
+                                <span className="text-xs">{stats.stress > 50 ? 'Căng thẳng' : 'Bình tĩnh'}</span>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+
+                {/* --- STAGE: SUBMISSION --- */}
+                {stage === 'submission' && (
+                    <motion.div
+                        key="submission"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="text-center z-10"
+                    >
+                        <BookOpen className="w-20 h-20 mx-auto text-white mb-6" />
+                        <h2 className="text-4xl font-bold mb-2">ĐÃ NỘP BÀI</h2>
+                        <p className="text-neutral-400">Giám thị đang thu bài...</p>
+                    </motion.div>
+                )}
+
+                {/* --- STAGE: WAITING RESULTS --- */}
+                {stage === 'waiting' && (
+                    <motion.div
+                        key="waiting"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-center z-10 max-w-md px-6"
+                    >
+                        <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-8" />
+                        <h3 className="text-2xl font-bold mb-4">Đang chấm điểm...</h3>
+                        <div className="space-y-2 text-sm text-neutral-500 font-mono">
+                            <TypingText text="Analyzing knowledge base..." speed={30} />
+                            <TypingText text="Checking integrity flags..." speed={30} />
+                            <TypingText text="Finalizing GPA..." speed={30} />
+                        </div>
+                    </motion.div>
+                )}
+
+            </AnimatePresence>
+        </motion.div>
     )
 }

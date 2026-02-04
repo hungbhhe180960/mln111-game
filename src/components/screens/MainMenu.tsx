@@ -10,12 +10,6 @@ type Props = {
     onOpenSettings?: () => void
 }
 
-/**
- * MainMenu
- * - Load settings từ localStorage
- * - Phát nhạc nền nếu bật sound
- * - Cho phép New / Continue / Settings
- */
 export default function MainMenu({
                                      onStartNew,
                                      onContinue,
@@ -34,7 +28,7 @@ export default function MainMenu({
     /* ================= check save ================= */
     const gameSaveExists = useMemo(() => {
         try {
-            return Boolean(localStorage.getItem('mua-on-thi-save-v1'))
+            return Boolean(localStorage.getItem('game_save'))
         } catch {
             return false
         }
@@ -42,75 +36,54 @@ export default function MainMenu({
 
     /* ================= effects ================= */
     useEffect(() => {
-        // load settings once / when store changes
         loadFromStorage()
-
         if (soundOn) {
-            try {
-                play('/assets/sounds/bgm_main_theme.mp3', volume)
-            } catch (err) {
-                console.warn('Failed to play BGM:', err)
-            }
+            play('bgm_main_theme', volume * 0.8, true)
         }
-
         return () => {
             stop()
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [soundOn, volume])
+    }, [soundOn, volume, play, stop, loadFromStorage])
 
-    /* ================= handlers ================= */
-    function handleNewGame() {
-        resetGame()
-
-        try {
-            localStorage.removeItem('mua-on-thi-save-v1')
-        } catch {}
-
-        onStartNew?.()
-    }
-
-    function handleContinue() {
-        loadGame()
+    const handleContinue = () => {
+        if (!gameSaveExists) return
         onContinue?.()
     }
 
-    /* ================= render ================= */
     return (
-        <div className="relative w-screen h-screen bg-gradient-to-br from-[#0f172a] to-[#020617] flex items-center justify-center overflow-hidden">
-            {/* Animated background */}
-            <motion.div
-                aria-hidden
-                animate={{ rotate: 360 }}
-                transition={{ duration: 80, repeat: Infinity, ease: 'linear' }}
-                className="absolute -left-1/4 -top-1/4 w-[1000px] h-[1000px] rounded-full
-                   bg-gradient-to-tr from-[#1e293b]/30 to-[#0ea5e9]/10 blur-3xl"
-            />
+        <div className="relative w-full h-full overflow-hidden bg-neutral-900 text-white flex flex-col items-center justify-center p-6">
+            {/* Background art (placeholder) */}
+            <div className="absolute inset-0 z-0 opacity-40">
+                <img
+                    src="https://images.unsplash.com/photo-1509062522246-3755977927d7?q=80&w=2604&auto=format&fit=crop"
+                    alt="Background"
+                    className="w-full h-full object-cover grayscale"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-neutral-900 via-neutral-900/60 to-transparent" />
+            </div>
 
-            {/* Content */}
             <motion.div
-                initial={{ y: 24, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.6 }}
-                className="relative z-10 w-full max-w-2xl px-6 py-10 text-center"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8 }}
+                className="relative z-10 flex flex-col items-center max-w-md w-full text-center"
             >
-                {/* Title */}
-                <div className="mb-6">
-                    <h1 className="text-5xl md:text-6xl font-extrabold text-white tracking-tight">
-                        Mùa ôn thi
-                    </h1>
-                    <p className="text-sm text-neutral-300 mt-2">
-                        Visual Novel — 7 ngày quyết định
-                    </p>
-                </div>
+                <div className="mb-2 uppercase tracking-[0.2em] text-sm text-yellow-500 font-bold">Visual Novel Game</div>
+                <h1 className="text-5xl md:text-7xl font-bold mb-6 text-transparent bg-clip-text bg-gradient-to-br from-white to-neutral-400 drop-shadow-lg">
+                    Mùa Ôn Thi
+                </h1>
+                <p className="text-neutral-300 mb-10 max-w-xs mx-auto leading-relaxed">
+                    7 ngày cuối cùng trước kỳ thi định mệnh.
+                    Bạn sẽ là thủ khoa, hay kẻ trượt môn?
+                </p>
 
-                {/* Buttons */}
-                <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-4 w-full max-w-xs">
+                    {/* FIXED: High contrast button - White Background, Black Text */}
                     <motion.button
-                        whileHover={{ scale: 1.02 }}
+                        whileHover={{ scale: 1.02, backgroundColor: '#e5e5e5' }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={handleNewGame}
-                        className="bg-primary text-black px-6 py-3 rounded-lg font-semibold shadow-lg"
+                        onClick={onStartNew}
+                        className="bg-white text-black px-6 py-4 rounded-lg font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.15)] hover:shadow-[0_0_25px_rgba(255,255,255,0.3)] transition-all"
                     >
                         Chơi mới
                     </motion.button>
@@ -120,28 +93,27 @@ export default function MainMenu({
                         whileTap={{ scale: gameSaveExists ? 0.98 : 1 }}
                         disabled={!gameSaveExists}
                         onClick={handleContinue}
-                        className={`px-6 py-3 rounded-lg font-semibold transition
-              ${
-                            gameSaveExists
-                                ? 'bg-white/10 text-white'
-                                : 'bg-white/5 text-neutral-400 cursor-not-allowed'
+                        className={`px-6 py-3 rounded-lg font-semibold transition border
+                        ${gameSaveExists
+                            ? 'bg-neutral-800 border-neutral-600 text-white hover:bg-neutral-700'
+                            : 'bg-transparent border-transparent text-neutral-600 cursor-not-allowed'
                         }`}
                     >
-                        Tiếp tục
+                        {gameSaveExists ? 'Tiếp tục' : 'Chưa có dữ liệu lưu'}
                     </motion.button>
 
                     <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={onOpenSettings}
-                        className="px-6 py-3 rounded-lg font-medium bg-white/5 text-white"
+                        className="px-6 py-3 rounded-lg font-medium text-neutral-400 hover:text-white transition"
                     >
                         Cài đặt
                     </motion.button>
                 </div>
 
-                <div className="mt-8 text-xs text-neutral-400">
-                    Phiên bản demo — Dữ liệu lưu trong localStorage
+                <div className="mt-12 text-[10px] text-neutral-600 uppercase tracking-widest">
+                    Demo Version 1.0
                 </div>
             </motion.div>
         </div>

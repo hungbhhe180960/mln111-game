@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import TypingText from '../ui/TypingText'
 import useSound from '../../hooks/useSound'
@@ -7,6 +7,7 @@ import type { Ending } from '../../types/game.types'
 import { useAchievementStore } from '../../stores/achievementStore'
 import AchievementBadge from '../ui/AchievementBadge'
 import { FaRedo, FaShareAlt } from 'react-icons/fa'
+import type { Achievement } from '../../data/achievements'
 
 type Props = {
     ending: Ending
@@ -15,189 +16,132 @@ type Props = {
 
 export default function EndingScreen({ ending, onClose }: Props) {
     /* =========================
-       GAME STORE (SAFE SELECTORS)
+       GAME STORE
        ========================= */
     const stats = useGameStore(s => s.stats)
     const history = useGameStore(s => s.history)
     const resetGame = useGameStore(s => s.resetGame)
-    const saveGame = useGameStore(s => s.saveGame)
 
     /* =========================
-       ACHIEVEMENT STORE (FIXED)
+       ACHIEVEMENT STORE
        ========================= */
-    const loadAchievements = useAchievementStore(s => s.load)
     const evaluateAchievements = useAchievementStore(s => s.evaluateAndUnlock)
-    const unlocked = useAchievementStore(s => s.unlocked) // ✅ FIX: no function call
+
+    /* =========================
+       STATE FOR NEW ACHIEVEMENTS
+       ========================= */
+    const [newAchievements, setNewAchievements] = useState<Achievement[]>([])
 
     /* =========================
        SOUND
        ========================= */
-    const { play, stop } = useSound()
+    const { stop } = useSound()
+
+    useEffect(() => {
+        stop()
+    }, [ending, stop])
 
     /* =========================
-       BGM KEY (STABLE)
-       ========================= */
-    const bgmKey = useMemo(() => {
-        if ((ending as any).bgMusic) return (ending as any).bgMusic as string
-
-        switch (ending.id) {
-            case 'best_ending':
-                return 'epic_victory'
-            case 'good_ending':
-                return 'happy_theme'
-            case 'miracle_ending':
-                return 'calm_lucky'
-            case 'neutral_ending':
-                return 'calm_neutral'
-            default:
-                return 'sad_ominous'
-        }
-    }, [ending])
-
-    /* =========================
-       ON MOUNT
+       FIX: USE EFFECT INSTEAD OF USE MEMO FOR SIDE EFFECTS
        ========================= */
     useEffect(() => {
-        loadAchievements()
-        evaluateAchievements(useGameStore.getState() as any)
+        const stateMock = useGameStore.getState()
+        const unlocked = evaluateAchievements(stateMock)
+        setNewAchievements(unlocked)
+    }, [evaluateAchievements]) // Only runs once on mount
 
-        play(`/assets/sounds/${bgmKey}.mp3`, 0.6, true)
-
-        return () => stop()
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [bgmKey])
-
-    /* =========================
-       TIMELINE (STABLE)
-       ========================= */
-    const timeline = useMemo(() => {
-        if (!history) return []
-        return history.slice(-8)
-    }, [history])
-
-    /* =========================
-       ACTIONS
-       ========================= */
-    function handleReplay() {
-        stop()
+    const handleReplay = () => {
         resetGame()
-        saveGame()
         onClose?.()
     }
 
-    function handleShare() {
-        alert('Tính năng chia sẻ sẽ được bổ sung sau.')
+    const handleShare = () => {
+        const text = `Tôi vừa đạt kết thúc "${ending.title}" trong game Mùa Ôn Thi! Knowledge: ${stats.knowledge}`
+        if (navigator.share) {
+            navigator.share({
+                title: 'Mùa Ôn Thi - Kết quả',
+                text: text,
+                url: window.location.href,
+            }).catch(() => {})
+        } else {
+            navigator.clipboard.writeText(text)
+            alert('Đã copy kết quả vào clipboard!')
+        }
     }
 
-    /* =========================
-       RENDER
-       ========================= */
     return (
         <AnimatePresence>
             <motion.div
-                key={ending.id}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-60 flex items-center justify-center bg-black text-white"
+                className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4 overflow-y-auto"
             >
-                {/* Background */}
-                {(ending as any).image ? (
-                    <motion.img
-                        src={(ending as any).image}
-                        alt="ending"
-                        className="absolute inset-0 w-full h-full object-cover"
-                        initial={{ scale: 1.05, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        transition={{ duration: 1.2 }}
-                    />
-                ) : (
-                    <div className="absolute inset-0 bg-gradient-to-b from-black via-gray-900 to-black/95" />
-                )}
-
-                <div className="absolute inset-0 bg-black/65" />
-
                 <motion.div
-                    initial={{ y: 24, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ duration: 0.7 }}
-                    className="relative z-20 max-w-5xl w-[94%] mx-auto p-6 md:p-10 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10 shadow-2xl"
+                    initial={{ scale: 0.9, y: 20 }}
+                    animate={{ scale: 1, y: 0 }}
+                    transition={{ delay: 0.2, type: 'spring' }}
+                    className="max-w-2xl w-full bg-neutral-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl"
                 >
-                    {/* Title */}
-                    <h1 className="text-3xl md:text-4xl font-extrabold text-center mb-4">
-                        {ending.title}
-                    </h1>
+                    {/* Header Image / Color Bar */}
+                    <div className="h-32 bg-gradient-to-r from-purple-900 to-indigo-900 relative flex items-center justify-center overflow-hidden">
+                        {/* Safe Noise Pattern */}
+                        <div className="absolute inset-0 opacity-20 mix-blend-overlay"
+                             style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E")` }}
+                        />
+                        <h1 className="relative z-10 text-3xl md:text-4xl font-bold text-white tracking-wider uppercase drop-shadow-md">
+                            Kết Thúc
+                        </h1>
+                    </div>
 
-                    {/* Description */}
-                    <TypingText
-                        text={ending.description ?? ''}
-                        speed={26}
-                        className="text-center text-neutral-100 mb-6"
-                    />
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-                        {/* Achievements */}
-                        <div className="bg-white/6 p-4 rounded-lg">
-                            <div className="text-sm text-neutral-300 mb-3">
-                                Achievements unlocked
-                            </div>
-                            <div className="space-y-3">
-                                {unlocked.length === 0 ? (
-                                    <div className="text-xs text-neutral-400">
-                                        Không có achievements.
-                                    </div>
-                                ) : (
-                                    unlocked.map(a => (
-                                        <AchievementBadge
-                                            key={a.id}
-                                            achievement={a}
-                                        />
-                                    ))
-                                )}
+                    <div className="p-6 md:p-8 space-y-6">
+                        {/* Title & Desc */}
+                        <div className="text-center">
+                            <h2 className="text-2xl font-bold text-white mb-2">{ending.title}</h2>
+                            <div className="text-neutral-400 leading-relaxed">
+                                <TypingText text={ending.description ?? ''} speed={25} />
                             </div>
                         </div>
 
-                        {/* Stats */}
-                        <div className="bg-white/6 p-4 rounded-lg">
-                            <div className="grid grid-cols-2 gap-3">
-                                <Stat label="Knowledge" value={stats.knowledge} color="text-primary" />
-                                <Stat label="Health" value={stats.health} color="text-red-400" />
-                                <Stat label="Stress" value={stats.stress} color="text-yellow-300" />
-                                <Stat
-                                    label="Money"
-                                    value={new Intl.NumberFormat('vi-VN', {
-                                        style: 'currency',
-                                        currency: 'VND',
-                                        maximumFractionDigits: 0,
-                                    }).format(stats.money)}
-                                    color="text-green-300"
-                                />
-                            </div>
+                        {/* Stats Summary */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <Stat label="Kiến thức" value={stats.knowledge} color="text-blue-400" />
+                            <Stat label="Sức khỏe" value={stats.health} color="text-red-400" />
+                            <Stat label="Stress" value={stats.stress} color="text-purple-400" />
+                            <Stat label="Tiền" value={`${(stats.money / 1000).toFixed(0)}k`} color="text-green-400" />
                         </div>
 
-                        {/* Timeline */}
-                        <div className="bg-white/6 p-4 rounded-lg flex flex-col justify-between">
-                            <div className="space-y-2">
-                                {timeline.map((c, i) => (
-                                    <div
-                                        key={i}
-                                        className="text-sm bg-white/5 p-2 rounded"
-                                    >
-                                        {c.text}
-                                    </div>
-                                ))}
+                        {/* New Achievements Unlocked */}
+                        {newAchievements.length > 0 && (
+                            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                                <div className="text-yellow-500 text-xs font-bold uppercase tracking-widest mb-3">
+                                    Thành tích mới mở khóa
+                                </div>
+                                <div className="space-y-2">
+                                    {newAchievements.map(ach => (
+                                        <AchievementBadge key={ach.id} achievement={ach} />
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="pt-6 border-t border-white/10">
+                            <div className="text-center text-neutral-500 text-sm mb-4">
+                                Bạn đã sống sót qua {history.length} sự kiện trong 7 ngày.
                             </div>
 
                             <div className="mt-4 flex gap-3">
                                 <button
                                     onClick={handleReplay}
-                                    className="flex-1 bg-primary text-black px-4 py-2 rounded-md flex items-center justify-center gap-2"
+                                    className="flex-1 bg-white hover:bg-neutral-200 text-black font-bold px-4 py-3 rounded-md flex items-center justify-center gap-2 transition-colors shadow-lg"
                                 >
                                     <FaRedo /> Chơi lại
                                 </button>
+
                                 <button
                                     onClick={handleShare}
-                                    className="px-4 py-2 rounded-md bg-white/6 flex items-center gap-2"
+                                    className="px-6 py-3 rounded-md bg-white/10 hover:bg-white/20 text-white flex items-center gap-2 transition-colors border border-white/10"
                                 >
                                     <FaShareAlt /> Chia sẻ
                                 </button>
@@ -210,9 +154,6 @@ export default function EndingScreen({ ending, onClose }: Props) {
     )
 }
 
-/* =========================
-   SMALL COMPONENT
-   ========================= */
 function Stat({
                   label,
                   value,
@@ -223,8 +164,8 @@ function Stat({
     color: string
 }) {
     return (
-        <div className="p-3 bg-white/5 rounded">
-            <div className="text-xs text-neutral-300">{label}</div>
+        <div className="p-3 bg-white/5 rounded text-center border border-white/5">
+            <div className="text-xs text-neutral-400 mb-1 uppercase tracking-wide">{label}</div>
             <div className={`text-xl font-bold ${color}`}>{value}</div>
         </div>
     )

@@ -1,400 +1,300 @@
 import { create } from 'zustand'
-import type { GameState, GameEvent, Choice, Stats } from '../types/game.types'
+import type { Stats, Choice, GameEvent, Ending, GameState, Flags } from '../types/game.types'
 import { EVENTS } from '../data/events'
 import { ENDINGS } from '../data/endings'
 import { ACHIEVEMENTS } from '../data/achievements'
+import saveGameUtils from '../utils/saveGame'
 
-const MAX_DAY = 7 // allow day 7 (exam day)
+/* ================= CONSTANTS ================= */
 
-// Convert EVENTS object -> array for easy searching
+const MAX_DAY = 7
 const EVENT_LIST: GameEvent[] = Object.values(EVENTS)
 
-function findStartEventForDay(day: number): GameEvent | null {
-    const explicitStart = EVENT_LIST.find(e => e.id === `day${day}_start`)
-    if (explicitStart) return explicitStart
-
-    // fallback to first event with matching day
-    const firstOfDay = EVENT_LIST.find(e => e.day === day)
-    if (firstOfDay) {
-        console.warn(`[ENGINE] day${day}_start missing, fallback to ${firstOfDay.id}`)
-        return firstOfDay
-    }
-
-    return null
+const INITIAL_STATS: Stats = {
+    knowledge: 10,
+    health: 80,
+    stress: 0,
+    consciousness: 100,
+    sleepless_count: 0,
+    money: 500000
 }
 
-function getEventById(id: string | undefined | null): GameEvent | null {
+/* ================= HELPERS ================= */
+
+function getEventById(id?: string | null): GameEvent | null {
     if (!id) return null
     return EVENT_LIST.find(e => e.id === id) ?? null
 }
 
+function findStartEvent(day: number): GameEvent | null {
+    return (
+        EVENT_LIST.find(e => e.id === `day${day}_start`) ??
+        EVENT_LIST.find(e => e.day === day) ??
+        null
+    )
+}
+
 function clampStat(key: keyof Stats, value: number) {
-    if (key === 'money') {
+    if (key === 'money' || key === 'sleepless_count') {
         return Math.max(0, Math.round(value))
     }
-    if (key === 'sleepless_count') {
-        return Math.max(0, Math.round(value))
-    }
-    // other stats 0..100
     return Math.max(0, Math.min(100, Math.round(value)))
 }
 
-type StoreState = {
-    day: number
-    time: string
-    stats: Stats
-    flags: Record<string, boolean>
-    currentEventId: string
-    history: Choice[]
-    endingId: string | null
-    achievements: string[]
+/**
+ * Helper: Cộng thêm giờ vào chuỗi HH:mm
+ * Nếu vượt quá 24:00 sẽ clamp lại ở 24:00 để trigger Midnight
+ */
+function addHours(currentTime: string, hoursToAdd: number): string {
+    const [h, m] = currentTime.split(':').map(Number)
+    let newH = h + hoursToAdd
 
-    // getters
-    currentEvent: () => GameEvent | null
-    isGameEnded: () => boolean
+    // Logic game: Nếu time >= 24 thì set cứng là 24:00 để App.tsx bắt sự kiện Midnight
+    if (newH >= 24) return '24:00'
 
-    // actions
-    startGame: () => void
-    resetGame: () => void
-    applyChoice: (choice: Choice) => void
-    nextDay: () => void
-    evaluateEnding: () => void
-    evaluateAchievements: () => void
-
-    // helper exposed for debugging
-    resolveNextDay: () => string | null
+    return `${newH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
 }
 
+function buildGameState(get: () => StoreState): GameState {
+    const s = get()
+    return {
+        day: s.day,
+        time: s.time,
+        stats: s.stats,
+        flags: s.flags,
+        currentEventId: s.currentEventId,
+        endingId: s.endingId,
+        history: s.history
+    }
+}
+
+/* ================= STORE TYPES ================= */
+
+type StoreState = GameState & {
+    endings: Ending[]
+
+    // Actions
+    resetGame: () => void
+    loadGame: () => boolean
+    saveGame: () => void
+    setEvents: (events: GameEvent[]) => void
+    updateStats: (delta: Partial<Stats>) => void
+    addFlag: (flag: string) => void
+    removeFlag: (flag: string) => void
+
+    applyChoice: (choiceId: string) => void
+    nextDay: () => void
+
+    evaluateEnding: () => void
+    evaluateAchievements: () => void
+    checkEnding: () => Ending | null
+    loadStory: (story: any) => void
+
+    // Internal helper for UI binding if needed
+    makeChoice: (choiceId: string) => void
+}
+
+/* ================= STORE IMPLEMENTATION ================= */
+
 export const useGameStore = create<StoreState>((set, get) => ({
-    // ===== STATE =====
+    // State
     day: 1,
     time: '08:00',
-    // initialize full stats shape (missing keys before caused many condition checks to fail)
-    stats: {
-        knowledge: 50,
-        health: 70,
-        stress: 0,
-        consciousness: 50,
-        sleepless_count: 0,
-        money: 200000,
-    },
+    stats: { ...INITIAL_STATS },
     flags: {},
-    currentEventId: '',
-    history: [],
+    currentEventId: 'day1_start',
     endingId: null,
-    achievements: [],
+    history: [],
+    endings: ENDINGS,
 
-    // ===== GETTERS =====
-    currentEvent() {
-        return EVENT_LIST.find(e => e.id === get().currentEventId) ?? null
+    /* --- Actions --- */
+
+    loadStory: () => {},
+    setEvents: () => {},
+
+    makeChoice: (choiceId) => {
+        get().applyChoice(choiceId)
     },
 
-    isGameEnded() {
-        return !!get().endingId
+    resetGame: () => {
+        set({
+            day: 1,
+            time: '08:00',
+            stats: { ...INITIAL_STATS },
+            flags: {},
+            currentEventId: 'day1_start',
+            endingId: null,
+            history: []
+        })
+        saveGameUtils.deleteSaveGame()
     },
 
-    // ===== ACTIONS =====
-    startGame() {
-        const startEvent = findStartEventForDay(1)
-        if (!startEvent) {
-            throw new Error('[ENGINE] No start event for day 1')
+    saveGame: () => {
+        const s = get()
+        saveGameUtils.saveGame({
+            day: s.day,
+            time: s.time,
+            stats: s.stats,
+            flags: s.flags,
+            currentEventId: s.currentEventId,
+            endingId: s.endingId,
+            history: s.history
+        })
+    },
+
+    loadGame: () => {
+        const saved = saveGameUtils.loadGame()
+        if (saved) {
+            set({
+                ...saved,
+                stats: { ...INITIAL_STATS, ...saved.stats },
+                flags: saved.flags || {}
+            })
+            return true
         }
+        return false
+    },
 
-        set({
-            day: 1,
-            time: startEvent.time ?? '08:00',
-            currentEventId: startEvent.id,
-            history: [],
-            endingId: null,
-            achievements: [],
-            flags: {},
-            // keep stats as initially defined
+    updateStats: (delta) => {
+        set(state => {
+            const newStats = { ...state.stats }
+            ;(Object.keys(delta) as Array<keyof Stats>).forEach(key => {
+                const val = delta[key]
+                if (val !== undefined) {
+                    newStats[key] = clampStat(key, newStats[key] + val)
+                }
+            })
+            return { stats: newStats }
         })
     },
 
-    resetGame() {
-        const startEvent = findStartEventForDay(1)
+    addFlag: (flag) => set(s => ({ flags: { ...s.flags, [flag]: true } })),
+    removeFlag: (flag) => set(s => {
+        const next = { ...s.flags }
+        delete next[flag]
+        return { flags: next }
+    }),
 
-        set({
-            day: 1,
-            time: startEvent?.time ?? '08:00',
-            currentEventId: startEvent?.id ?? '',
-            stats: {
-                knowledge: 50,
-                health: 70,
-                stress: 0,
-                consciousness: 50,
-                sleepless_count: 0,
-                money: 200000,
-            },
-            flags: {},
-            history: [],
-            endingId: null,
-            achievements: [],
-        })
-    },
+    /* ========== CORE LOGIC: APPLY CHOICE ========== */
 
-    /**
-     * Apply a chosen option (Choice).
-     * - Correctly handle effects structure (events use Partial<Stats> directly)
-     * - Special-case sleepless_count: events now use 0 to reset, 1 to indicate "stayed up"
-     *   -> if effect.sleepless_count === 0 => set to 0
-     *   -> if effect.sleepless_count === 1 => increment by 1 (accumulate consecutive nights awake)
-     * - Apply flags from choice.flags (array)
-     * - Follow nextEvent (choice.nextEvent). If nextEvent === 'resolve_next_day' we call resolveNextDay()
-     * - If choice.nextEvent points to an event that exists but its condition returns false, we fallback:
-     *      1) try to find another event on the same day/time with a truthy condition,
-     *      2) otherwise call nextDay()
-     */
-    applyChoice(choice) {
-        const event = get().currentEvent()
+    applyChoice: (choiceId) => {
+        const state = get()
+        const event = getEventById(state.currentEventId)
         if (!event) return
 
-        // record history (store the choice object)
-        set(state => ({ history: [...state.history, choice] }))
+        const choice = event.choices.find(c => c.id === choiceId)
+        if (!choice) return
 
-        // Apply stat changes (choice.effects is Partial<Stats>)
+        // 1. Tách Time ra khỏi Stats Effects để xử lý riêng
         if (choice.effects) {
-            set(state => {
-                const updated: Stats = { ...state.stats }
+            const { time: timeEffect, ...statsEffects } = choice.effects
 
-                Object.entries(choice.effects as Partial<Stats>).forEach(([k, v]) => {
-                    const key = k as keyof Stats
-                    const val = Number(v)
-
-                    if (key === 'sleepless_count') {
-                        // Standard semantics:
-                        // 0 => reset to 0 (slept)
-                        // 1 => stayed up this night => increment consecutive sleepless_count by 1
-                        if (val <= 0) {
-                            updated.sleepless_count = 0
-                        } else if (val === 1) {
-                            updated.sleepless_count = clampStat('sleepless_count', updated.sleepless_count + 1)
-                        } else {
-                            // if data gives absolute positive number, set to that
-                            updated.sleepless_count = clampStat('sleepless_count', val)
-                        }
-                        return
-                    }
-
-                    // other stats treated as deltas (positive/negative)
-                    const currentValue = (updated as any)[key]
-                    const prev = typeof currentValue === 'number' ? currentValue : 0
-                    (updated as any)[key] = clampStat(key, prev + val)
-                })
-
-                return { stats: updated }
-            })
-        }
-
-        // Apply flags (choice.flags is an array of flag strings)
-        if (Array.isArray(choice.flags) && choice.flags.length > 0) {
-            set(state => {
-                const nextFlags = { ...state.flags }
-                choice.flags!.forEach((f: string) => (nextFlags[f] = true))
-                return { flags: nextFlags }
-            })
-        }
-
-        // Determine next event
-        const nextId = (choice as any).nextEvent ?? (choice as any).nextEventId ?? null
-
-        if (nextId) {
-            // Special resolver token (engine-level)
-            if (nextId === 'resolve_next_day') {
-                const resolved = get().resolveNextDay()
-                if (resolved) {
-                    set(state => ({ currentEventId: resolved, time: EVENT_LIST.find(e => e.id === resolved)?.time ?? '08:00' }))
-                    return
-                } else {
-                    // fallback to nextDay if resolver couldn't find event
-                    get().nextDay()
-                    return
-                }
+            // Xử lý Time (nếu có)
+            if (typeof timeEffect === 'number') {
+                const newTime = addHours(state.time, timeEffect)
+                set({ time: newTime })
             }
 
-            // If target exists and condition passes (if any), jump to it.
-            const targetEvent = getEventById(nextId)
-            if (targetEvent) {
-                // evaluate condition if present
-                if (typeof targetEvent.condition === 'function') {
-                    try {
-                        const gameStateSnapshot: GameState = {
-                            day: get().day,
-                            time: get().time,
-                            stats: get().stats,
-                            flags: get().flags,
-                            currentEvent: get().currentEventId,
-                            history: get().history,
-                        }
-                        const ok = targetEvent.condition(gameStateSnapshot)
-                        if (!ok) {
-                            console.warn(`[ENGINE] target event ${nextId} condition false, falling back to nextDay()`)
-                            get().nextDay()
-                            return
-                        }
-                    } catch (err) {
-                        console.warn('[ENGINE] condition threw for targetEvent', nextId, err)
-                        get().nextDay()
-                        return
-                    }
-                }
+            // Xử lý Stats còn lại
+            get().updateStats(statsEffects)
+        }
 
-                set({ currentEventId: targetEvent.id, time: targetEvent.time ?? get().time })
-                return
+        // 2. Update flags
+        if (choice.flags) {
+            choice.flags.forEach(f => get().addFlag(f))
+        }
+
+        // 3. Save History
+        const historyEntry = {
+            day: state.day,
+            eventId: event.id,
+            choiceId: choice.id,
+            timestamp: Date.now()
+        }
+        set(s => ({ history: [...s.history, historyEntry] }))
+
+        // 4. Navigate Logic
+        // Nếu time >= 24:00, App.tsx sẽ tự động chuyển sang Midnight screen,
+        // nhưng ta vẫn cần update currentEventId nếu có nextEvent rõ ràng (cho history hoặc flow).
+        // Tuy nhiên, ưu tiên logic: Time -> NextEvent.
+
+        if (choice.nextEvent) {
+            const nextEv = getEventById(choice.nextEvent)
+            if (nextEv) {
+                // Nếu event tiếp theo set lại giờ cứng (ví dụ sang Chiều 14:00), ta dùng giờ của event
+                // Nếu không, giữ giờ hiện tại (đã cộng ở bước 1)
+
+                // Logic: Các event mốc thời gian (Noon, Afternoon...) thường có time cố định.
+                set({
+                    currentEventId: nextEv.id,
+                    time: nextEv.time // Set giờ theo event mới (Reset lại flow chuẩn)
+                })
             } else {
-                console.warn(`[ENGINE] nextEvent ${nextId} not found -> fallback to nextDay`)
-                get().nextDay()
-                return
+                // Nếu nextEvent là string đặc biệt (như trigger midnight)
+                if (choice.nextEvent.includes('midnight')) {
+                    set({ time: '24:00' }) // Force midnight
+                } else {
+                    get().nextDay()
+                }
             }
+        } else {
+            // Không có nextEvent -> coi như hết ngày
+            get().nextDay()
         }
 
-        // If no explicit nextEvent, advance to the next day (legacy behavior)
-        get().nextDay()
+        // Auto save triggers via middleware/listener usually
+        get().saveGame()
     },
 
-    /**
-     * Advance to the next day and pick a start event.
-     */
-    nextDay() {
-        const nextDay = get().day + 1
+    /* ========== MIDNIGHT / NEXT DAY ========== */
 
-        if (nextDay > MAX_DAY) {
+    nextDay: () => {
+        const currentDay = get().day
+        const next = currentDay + 1
+
+        if (next > MAX_DAY) {
             get().evaluateEnding()
             return
         }
 
-        const startEvent = findStartEventForDay(nextDay)
+        const ev = findStartEvent(next)
 
-        if (!startEvent) {
-            console.error(`[ENGINE] No event found for day ${nextDay}`)
+        if (!ev) {
+            console.error(`Missing start event for day ${next}`)
             get().evaluateEnding()
             return
         }
 
         set({
-            day: nextDay,
-            time: startEvent.time ?? '08:00',
-            currentEventId: startEvent.id,
+            day: next,
+            time: ev.time, // Reset về 08:00 hoặc giờ của event start
+            currentEventId: ev.id,
         })
     },
 
-    /**
-     * Evaluate endings based on ENDINGS registry
-     */
-    evaluateEnding() {
-        const state = get()
-        const matchedEnding = ENDINGS.find(e => {
+    /* ========== ENDING CHECK ========== */
+
+    checkEnding: () => {
+        const state = buildGameState(get)
+        for (const end of ENDINGS) {
             try {
-                return e.condition({
-                    day: state.day,
-                    time: state.time,
-                    stats: state.stats,
-                    flags: state.flags,
-                    currentEvent: state.currentEventId,
-                    history: state.history,
-                })
-            } catch (err) {
-                console.warn('Ending condition threw', err)
-                return false
-            }
-        })
+                if (end.condition(state)) return end
+            } catch {}
+        }
+        return null
+    },
 
-        set({
-            endingId: matchedEnding?.id ?? 'normal_end',
-        })
-
+    evaluateEnding: () => {
+        const ending = get().checkEnding()
+        if (ending) {
+            set({ endingId: ending.id })
+        } else {
+            set({ endingId: 'normal_end' })
+        }
         get().evaluateAchievements()
     },
 
-    /**
-     * Evaluate achievements and store unlocked ids
-     */
-    evaluateAchievements() {
-        const state = get()
-        const unlocked = ACHIEVEMENTS.filter(a => {
-            try {
-                return a.condition({
-                    day: state.day,
-                    time: state.time,
-                    stats: state.stats,
-                    flags: state.flags,
-                    currentEvent: state.currentEventId,
-                    history: state.history,
-                })
-            } catch (err) {
-                console.warn('achievement condition threw', err)
-                return false
-            }
-        }).map(a => a.id)
-
-        set({ achievements: unlocked })
-    },
-
-    /**
-     * Resolve the next day token.
-     * - This is the engine-level resolver for 'resolve_next_day'.
-     * - It MUST increment the day (the canonical place to do so).
-     * - It chooses which event to go to next (hospital check or normal start / special morning).
-     *
-     * Return: the resolved event id (string) or null if nothing found.
-     */
-    resolveNextDay() {
-        const state = get()
-        const nextDay = state.day + 1
-
-        // If we are already at or beyond MAX_DAY, end the game
-        if (nextDay > MAX_DAY) {
-            console.debug('[ENGINE] resolveNextDay -> exceed MAX_DAY, evaluating ending')
-            get().evaluateEnding()
-            return null
-        }
-
-        // increment day first (engine-side)
-        set({ day: nextDay })
-
-        // Helper to pick by priority
-        const shouldHospitalize = state.stats.sleepless_count >= 2 || state.stats.health <= 0
-
-        // day-specific routing
-        if (nextDay === 2) {
-            const target = getEventById('day2_morning_check') ?? getEventById('day2_start') ?? findStartEventForDay(2)
-            if (target) return target.id
-        }
-
-        if (nextDay === 3) {
-            if (shouldHospitalize) {
-                return getEventById('day3_hospital_check')?.id ?? getEventById('day3_start')?.id ?? null
-            }
-            return getEventById('day3_main_event')?.id ?? getEventById('day3_start')?.id ?? null
-        }
-
-        if (nextDay === 4) {
-            if (shouldHospitalize) {
-                return getEventById('day4_start_after_hospital')?.id ?? getEventById('day4_start')?.id ?? null
-            }
-            return getEventById('day4_start')?.id ?? null
-        }
-
-        if (nextDay === 5) {
-            if (shouldHospitalize) {
-                return getEventById('day5_hospital_check')?.id ?? getEventById('day5_start')?.id ?? null
-            }
-            return getEventById('day5_start')?.id ?? null
-        }
-
-        if (nextDay === 6) {
-            if (shouldHospitalize) {
-                return getEventById('day6_start_after_hospital')?.id ?? getEventById('day6_start')?.id ?? null
-            }
-            return getEventById('day6_start')?.id ?? null
-        }
-
-        if (nextDay >= 7) {
-            return getEventById('day7_wakeup')?.id ?? getEventById('day7_start')?.id ?? null
-        }
-
-        // generic fallback
-        return getEventById(`day${Math.min(nextDay, MAX_DAY)}_start`)?.id ?? null
-    },
+    evaluateAchievements: () => {
+        // Trigger check achievement (giả lập)
+    }
 }))

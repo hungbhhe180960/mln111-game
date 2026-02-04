@@ -9,9 +9,10 @@ type Props = {
 
 /**
  * TypingText:
- * - types text character by character
- * - pauses slightly longer on punctuation (. , ! ?)
- * - clicking will skip and show full text immediately
+ * - Hiệu ứng gõ chữ từng ký tự.
+ * - Tự động dừng lâu hơn ở dấu câu.
+ * - Click vào để hiện toàn bộ văn bản ngay lập tức.
+ * - [FIX] Dùng useRef cho onComplete để tránh lỗi dependency change.
  */
 export default function TypingText({ text, speed = 30, onComplete, className = '' }: Props) {
     const [displayed, setDisplayed] = useState('')
@@ -19,6 +20,12 @@ export default function TypingText({ text, speed = 30, onComplete, className = '
     const mounted = useRef(true)
     const skipRef = useRef(false)
     const timerRef = useRef<number | null>(null)
+
+    // Lưu onComplete vào ref để luôn có bản mới nhất mà không gây re-effect
+    const onCompleteRef = useRef(onComplete)
+    useEffect(() => {
+        onCompleteRef.current = onComplete
+    }, [onComplete])
 
     useEffect(() => {
         mounted.current = true
@@ -32,24 +39,28 @@ export default function TypingText({ text, speed = 30, onComplete, className = '
 
         function step() {
             if (!mounted.current) return
+
+            // Nếu đã skip, gọi onComplete và dừng
             if (skipRef.current) {
-                // show all
                 setDisplayed(text)
-                onComplete?.()
+                onCompleteRef.current?.()
                 return
             }
+
+            // Nếu đã gõ hết
             if (idxRef.current >= text.length) {
-                onComplete?.()
+                onCompleteRef.current?.()
                 return
             }
+
             const ch = text[idxRef.current]
             setDisplayed(prev => prev + ch)
             idxRef.current += 1
 
-            // determine delay
             let delay = speed
-            if (isPunctuation(ch)) delay = Math.max(120, speed * 6) // longer pause
-            // small extra pause after ellipsis
+            // Pause lâu hơn ở dấu câu
+            if (isPunctuation(ch)) delay = Math.max(120, speed * 6)
+            // Pause cực lâu ở dấu chấm lửng (...)
             if (ch === '.' && text[idxRef.current] === '.' && text[idxRef.current + 1] === '.') {
                 delay = Math.max(220, speed * 8)
             }
@@ -57,7 +68,7 @@ export default function TypingText({ text, speed = 30, onComplete, className = '
             timerRef.current = window.setTimeout(step, delay)
         }
 
-        // start
+        // Start typing
         timerRef.current = window.setTimeout(step, speed)
 
         return () => {
@@ -67,28 +78,26 @@ export default function TypingText({ text, speed = 30, onComplete, className = '
                 timerRef.current = null
             }
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [text, speed])
+    }, [text, speed]) // Dependency array cố định kích thước -> Fix lỗi React
 
     function handleClick() {
-        // skip typing
+        // Skip effect
         if (displayed !== text) {
             skipRef.current = true
-            // clear timer and show full
             if (timerRef.current) {
                 clearTimeout(timerRef.current)
                 timerRef.current = null
             }
             setDisplayed(text)
-            onComplete?.()
+            onCompleteRef.current?.()
         }
     }
 
     return (
-        <p onClick={handleClick} className={`select-text text-base leading-relaxed ${className}`}>
+        <span onClick={handleClick} className={`select-text ${className} cursor-pointer`}>
             {displayed}
-            {/* caret when typing */}
-            {displayed !== text ? <span className="inline-block w-1 h-5 align-middle bg-neutral-700 ml-1 animate-pulse" /> : null}
-        </p>
+            {/* Con trỏ nhấp nháy khi đang gõ */}
+            {displayed !== text && <span className="animate-pulse ml-0.5 inline-block w-1.5 h-4 bg-current align-middle"></span>}
+        </span>
     )
 }
