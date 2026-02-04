@@ -1,0 +1,28 @@
+{
+  "title": "Mùa ôn thi",
+  "author": "Tác giả",
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "Mở đầu",
+      "lines": [
+        {
+          "id": "l1",
+          "speaker": "Bạn",
+          "text": "Mùa ôn thi đã đến. Tôi cảm thấy vừa hồi hộp vừa lo lắng.",
+          "bgImage": "school_hallway.jpg",
+          "sound": "ambient_school.mp3"
+        },
+        {
+          "id": "l2",
+          "speaker": "Bạn",
+          "text": "Mình sẽ tập trung hay đi chơi với bạn bè?",
+          "choices": [
+            { "id": "c1", "text": "Tập trung học", "nextSceneId": "study_path" },
+            { "id": "c2", "text": "Đi chơi một chút", "nextSceneId": "fun_path" }
+          ]
+        }
+      ]
+    }
+  ]
+}
