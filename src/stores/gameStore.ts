@@ -1,23 +1,13 @@
 import { create } from 'zustand'
-import type { Stats, Choice, GameEvent, Ending, GameState, Flags } from '../types/game.types'
+import type { Stats, Ending, GameState, GameEvent } from '../types/game.types'
 import { EVENTS } from '../data/events'
 import { ENDINGS } from '../data/endings'
-import { ACHIEVEMENTS } from '../data/achievements'
 import saveGameUtils from '../utils/saveGame'
 
 /* ================= CONSTANTS ================= */
 
 const MAX_DAY = 7
 const EVENT_LIST: GameEvent[] = Object.values(EVENTS)
-
-const INITIAL_STATS: Stats = {
-    knowledge: 10,
-    health: 80,
-    stress: 0,
-    consciousness: 100,
-    sleepless_count: 0,
-    money: 500000
-}
 
 /* ================= HELPERS ================= */
 
@@ -41,20 +31,6 @@ function clampStat(key: keyof Stats, value: number) {
     return Math.max(0, Math.min(100, Math.round(value)))
 }
 
-/**
- * Helper: Cộng thêm giờ vào chuỗi HH:mm
- * Nếu vượt quá 24:00 sẽ clamp lại ở 24:00 để trigger Midnight
- */
-function addHours(currentTime: string, hoursToAdd: number): string {
-    const [h, m] = currentTime.split(':').map(Number)
-    let newH = h + hoursToAdd
-
-    // Logic game: Nếu time >= 24 thì set cứng là 24:00 để App.tsx bắt sự kiện Midnight
-    if (newH >= 24) return '24:00'
-
-    return `${newH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
-}
-
 function buildGameState(get: () => StoreState): GameState {
     const s = get()
     return {
@@ -68,16 +44,14 @@ function buildGameState(get: () => StoreState): GameState {
     }
 }
 
-/* ================= STORE TYPES ================= */
-
+// Type definitions
 type StoreState = GameState & {
     endings: Ending[]
 
-    // Actions
     resetGame: () => void
     loadGame: () => boolean
     saveGame: () => void
-    setEvents: (events: GameEvent[]) => void
+
     updateStats: (delta: Partial<Stats>) => void
     addFlag: (flag: string) => void
     removeFlag: (flag: string) => void
@@ -88,13 +62,20 @@ type StoreState = GameState & {
     evaluateEnding: () => void
     evaluateAchievements: () => void
     checkEnding: () => Ending | null
-    loadStory: (story: any) => void
 
-    // Internal helper for UI binding if needed
+    loadStory: (story: any) => void
+    setEvents: (events: GameEvent[]) => void
     makeChoice: (choiceId: string) => void
 }
 
-/* ================= STORE IMPLEMENTATION ================= */
+const INITIAL_STATS: Stats = {
+    knowledge: 10,
+    health: 80,
+    stress: 0,
+    consciousness: 100,
+    sleepless_count: 0,
+    money: 500000
+}
 
 export const useGameStore = create<StoreState>((set, get) => ({
     // State
@@ -107,14 +88,10 @@ export const useGameStore = create<StoreState>((set, get) => ({
     history: [],
     endings: ENDINGS,
 
-    /* --- Actions --- */
-
     loadStory: () => {},
     setEvents: () => {},
-
-    makeChoice: (choiceId) => {
-        get().applyChoice(choiceId)
-    },
+    removeFlag: () => {},
+    makeChoice: (choiceId) => get().applyChoice(choiceId),
 
     resetGame: () => {
         set({
@@ -158,9 +135,15 @@ export const useGameStore = create<StoreState>((set, get) => ({
     updateStats: (delta) => {
         set(state => {
             const newStats = { ...state.stats }
+            const isTired = state.stats.sleepless_count >= 1
+
             ;(Object.keys(delta) as Array<keyof Stats>).forEach(key => {
-                const val = delta[key]
+                let val = delta[key]
                 if (val !== undefined) {
+                    if (isTired) {
+                        if (key === 'knowledge' && val > 0) val = Math.ceil(val * 0.5)
+                        if (key === 'stress' && val > 0) val = Math.ceil(val * 1.25)
+                    }
                     newStats[key] = clampStat(key, newStats[key] + val)
                 }
             })
@@ -169,13 +152,6 @@ export const useGameStore = create<StoreState>((set, get) => ({
     },
 
     addFlag: (flag) => set(s => ({ flags: { ...s.flags, [flag]: true } })),
-    removeFlag: (flag) => set(s => {
-        const next = { ...s.flags }
-        delete next[flag]
-        return { flags: next }
-    }),
-
-    /* ========== CORE LOGIC: APPLY CHOICE ========== */
 
     applyChoice: (choiceId) => {
         const state = get()
@@ -185,26 +161,24 @@ export const useGameStore = create<StoreState>((set, get) => ({
         const choice = event.choices.find(c => c.id === choiceId)
         if (!choice) return
 
-        // 1. Tách Time ra khỏi Stats Effects để xử lý riêng
         if (choice.effects) {
             const { time: timeEffect, ...statsEffects } = choice.effects
 
-            // Xử lý Time (nếu có)
             if (typeof timeEffect === 'number') {
-                const newTime = addHours(state.time, timeEffect)
+                const [h, m] = state.time.split(':').map(Number)
+                let newH = h + timeEffect
+                let newTime = `${Math.min(24, newH).toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
+                if (newH >= 24) newTime = '24:00'
                 set({ time: newTime })
             }
 
-            // Xử lý Stats còn lại
             get().updateStats(statsEffects)
         }
 
-        // 2. Update flags
         if (choice.flags) {
             choice.flags.forEach(f => get().addFlag(f))
         }
 
-        // 3. Save History
         const historyEntry = {
             day: state.day,
             eventId: event.id,
@@ -213,66 +187,68 @@ export const useGameStore = create<StoreState>((set, get) => ({
         }
         set(s => ({ history: [...s.history, historyEntry] }))
 
-        // 4. Navigate Logic
-        // Nếu time >= 24:00, App.tsx sẽ tự động chuyển sang Midnight screen,
-        // nhưng ta vẫn cần update currentEventId nếu có nextEvent rõ ràng (cho history hoặc flow).
-        // Tuy nhiên, ưu tiên logic: Time -> NextEvent.
+        // 🟢 FIX: Xử lý đặc biệt cho midnight
+        // if (choice.nextEvent && choice.nextEvent.includes('midnight')) {
+        //     // Không làm gì cả - để App.tsx tự xử lý midnight screen
+        //     // Chỉ lưu game và return, App sẽ tự chuyển screen
+        //     get().saveGame()
+        //     return
+        // }
 
         if (choice.nextEvent) {
             const nextEv = getEventById(choice.nextEvent)
             if (nextEv) {
-                // Nếu event tiếp theo set lại giờ cứng (ví dụ sang Chiều 14:00), ta dùng giờ của event
-                // Nếu không, giữ giờ hiện tại (đã cộng ở bước 1)
-
-                // Logic: Các event mốc thời gian (Noon, Afternoon...) thường có time cố định.
                 set({
                     currentEventId: nextEv.id,
-                    time: nextEv.time // Set giờ theo event mới (Reset lại flow chuẩn)
+                    time: nextEv.time || '08:00'
                 })
             } else {
-                // Nếu nextEvent là string đặc biệt (như trigger midnight)
-                if (choice.nextEvent.includes('midnight')) {
-                    set({ time: '24:00' }) // Force midnight
-                } else {
-                    get().nextDay()
-                }
+                get().nextDay()
             }
         } else {
-            // Không có nextEvent -> coi như hết ngày
             get().nextDay()
         }
 
-        // Auto save triggers via middleware/listener usually
         get().saveGame()
     },
 
-    /* ========== MIDNIGHT / NEXT DAY ========== */
-
     nextDay: () => {
-        const currentDay = get().day
-        const next = currentDay + 1
+        const state = get()
+        const next = state.day + 1
 
+        // 🚑 HOSPITAL CHECK (Logic tập trung tại đây)
+        // Nếu đã thức trắng >= 2 đêm HOẶC hết máu -> Vào viện
+        if (state.stats.sleepless_count >= 2 || state.stats.health <= 0) {
+            set({
+                day: next, // Vẫn sang ngày mới (ngày nhập viện)
+                time: '08:00',
+                currentEventId: 'hospital_start'
+            })
+            get().saveGame()
+            return
+        }
+
+        // Kiểm tra kết thúc game
         if (next > MAX_DAY) {
             get().evaluateEnding()
+            get().saveGame()
             return
         }
 
+        // Tìm event bắt đầu ngày mới
         const ev = findStartEvent(next)
 
-        if (!ev) {
-            console.error(`Missing start event for day ${next}`)
-            get().evaluateEnding()
-            return
-        }
+        // 🟢 FIX: Luôn đảm bảo time không phải là 24:00 khi bắt đầu ngày mới
+        const newTime = ev?.time && ev.time !== '24:00' ? ev.time : '08:00'
 
         set({
             day: next,
-            time: ev.time, // Reset về 08:00 hoặc giờ của event start
-            currentEventId: ev.id,
+            time: newTime,
+            currentEventId: ev?.id ?? `day${next}_start`,
         })
-    },
 
-    /* ========== ENDING CHECK ========== */
+        get().saveGame()
+    },
 
     checkEnding: () => {
         const state = buildGameState(get)
@@ -286,15 +262,11 @@ export const useGameStore = create<StoreState>((set, get) => ({
 
     evaluateEnding: () => {
         const ending = get().checkEnding()
-        if (ending) {
-            set({ endingId: ending.id })
-        } else {
-            set({ endingId: 'normal_end' })
-        }
+        set({ endingId: ending?.id ?? 'normal_end' })
         get().evaluateAchievements()
     },
 
     evaluateAchievements: () => {
-        // Trigger check achievement (giả lập)
+        // ...
     }
 }))

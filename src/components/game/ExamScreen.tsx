@@ -4,7 +4,7 @@ import TypingText from '../ui/TypingText'
 import useSound from '../../hooks/useSound'
 import { useGameStore } from '../../stores/gameStore'
 
-/* --- INLINE SVG ICONS (Thay thế lucide-react để tránh lỗi build) --- */
+/* --- INLINE SVG ICONS --- */
 function TriangleAlert({ className }: { className?: string }) {
     return (
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -86,18 +86,11 @@ function HeartPulse({ className }: { className?: string }) {
 }
 
 /**
- * EXAM SCREEN - PHIÊN BẢN CHI TIẾT (FULL)
- * * Features:
- * 1. Intro dramatic: Đếm ngược, không khí căng thẳng.
- * 2. Cheat Mechanics: Quyết định dùng phao với rủi ro thực tế.
- * 3. Exam Simulation:
- * - Thanh tiến độ chạy theo thời gian thực.
- * - Flavor text (suy nghĩ nhân vật) thay đổi dựa trên chỉ số Knowledge/Stress.
- * - Hiệu ứng hình ảnh: Rung lắc khi Stress cao, mờ mắt khi Health thấp.
- * 4. Dynamic Outcome: Kết quả dựa trên tổng hòa các chỉ số + may mắn.
+ * EXAM SCREEN - ULTIMATE VERSION
+ * Kết hợp Visuals hoành tráng + Logic chiến thuật sâu sắc.
  */
 
-// Các câu thoại nội tâm ngẫu nhiên khi làm bài
+// Flavor Texts: Suy nghĩ của nhân vật trong lúc làm bài
 const FLAVOR_TEXTS = {
     high_knowledge: [
         "Câu này mình đã ôn kỹ ở Day 4 rồi!",
@@ -124,12 +117,17 @@ const FLAVOR_TEXTS = {
         "Hú hồn, giám thị vừa đi qua...",
         "Chép được nguyên một đoạn dài, ngon!",
         "Cảm giác tội lỗi nhưng mà... điểm cao là được.",
+    ],
+    lucky_guess: [
+        "Tổ tiên mách bảo là câu B!",
+        "Thần linh ơi phù hộ con...",
+        "Nhắm mắt chọn đại vậy.",
     ]
 }
 
-type Stage = 'intro' | 'cheat_decision' | 'working' | 'caught' | 'submission' | 'waiting'
+type Stage = 'intro' | 'decision' | 'working' | 'caught' | 'submission' | 'waiting'
 
-// NOISE SVG DATA URI (Thay thế link chết)
+// NOISE BG
 const NOISE_BG = `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E")`
 
 export default function ExamScreen({ onFinished }: { onFinished?: () => void }) {
@@ -145,6 +143,8 @@ export default function ExamScreen({ onFinished }: { onFinished?: () => void }) 
     const [progress, setProgress] = useState(0)
     const [currentThought, setCurrentThought] = useState("")
     const [isCheatingActive, setIsCheatingActive] = useState(false)
+    const [isLuckyGuessing, setIsLuckyGuessing] = useState(false)
+    const [resultText, setResultText] = useState("")
 
     // Refs
     const progressInterval = useRef<number | null>(null)
@@ -167,13 +167,9 @@ export default function ExamScreen({ onFinished }: { onFinished?: () => void }) 
             return () => clearInterval(beat)
         }
 
-        // Chuyển sang phase tiếp theo sau intro
+        // Chuyển sang phase Decision sau intro
         const t = setTimeout(() => {
-            if (flags.has_cheat_sheet) {
-                setStage('cheat_decision')
-            } else {
-                startExamSimulation(false)
-            }
+            setStage('decision')
         }, 4000)
 
         return () => {
@@ -184,39 +180,52 @@ export default function ExamScreen({ onFinished }: { onFinished?: () => void }) 
         }
     }, [])
 
-    // 2. Logic Cheat Decision
-    const handleCheatDecision = (useCheat: boolean) => {
-        if (useCheat) {
-            // Roll dice: 50% rủi ro (có thể thay đổi tùy độ khó)
-            // Nếu health thấp, khả năng bị bắt cao hơn do lóng ngóng
-            const failChance = stats.health < 30 ? 0.6 : 0.5
-            const isCaught = Math.random() < failChance
-
-            if (isCaught) {
-                setStage('caught')
-                addFlag('cheat_caught')
+    // 2. Logic Decision (Phao / Khoanh bừa / Tự tin)
+    const handleDecision = (type: 'cheat' | 'guess' | 'confident') => {
+        if (type === 'cheat') {
+            // 50/50 Bị bắt
+            const caught = Math.random() < 0.5
+            if (caught) {
+                addFlag('cheat_caught') // Bị đình chỉ
                 playSfx('/assets/sounds/siren.mp3', 1.0)
+                setStage('caught')
                 return
             } else {
-                // Cheat trót lọt
+                // Cheat trót lọt -> Điểm cao
                 addFlag('cheat_success')
-                updateStats({ knowledge: 25, stress: 10 }) // Tăng điểm nhưng cũng tăng stress vì sợ
+                updateStats({ knowledge: 45, stress: 20 }) // Bonus mạnh
                 setIsCheatingActive(true)
-                startExamSimulation(true)
+                setResultText("Trót lọt! Chép được gần hết bài.")
+                startExamSimulation()
             }
+        } else if (type === 'guess') {
+            // 50/50 May mắn
+            const lucky = Math.random() < 0.5
+            if (lucky) {
+                addFlag('lucky_guess') // Good ending (Pass)
+                addFlag('miracle_survivor')
+                updateStats({ knowledge: 40 }) // Cộng điểm vừa đủ qua
+                setResultText("Tổ tiên mách bảo! Khoanh đâu trúng đó.")
+            } else {
+                setResultText("Đen quá... Khoanh toàn câu sai.")
+                // Không cộng điểm -> Trượt
+            }
+            setIsLuckyGuessing(true)
+            startExamSimulation()
         } else {
-            // Honest
-            addFlag('integrity_bonus') // Có thể dùng cho Good Ending
-            updateStats({ stress: -5 }) // Nhẹ lòng
-            startExamSimulation(false)
+            // Tự tin
+            addFlag('integrity_bonus')
+            updateStats({ stress: -15 }) // Giảm stress
+            setResultText("Tự tin vào kiến thức đã ôn luyện.")
+            startExamSimulation()
         }
     }
 
-    // 3. Exam Simulation (Main Loop)
-    const startExamSimulation = (isCheating: boolean) => {
+    // 3. Exam Simulation (Main Loop - Visuals)
+    const startExamSimulation = () => {
         setStage('working')
         let p = 0
-        const duration = 8000 // 8 giây mô phỏng 90 phút thi
+        const duration = 8000 // 8 giây mô phỏng
         const tick = 100
 
         progressInterval.current = window.setInterval(() => {
@@ -230,20 +239,21 @@ export default function ExamScreen({ onFinished }: { onFinished?: () => void }) 
 
         // Random thoughts loop
         const thoughtTick = setInterval(() => {
-            updateFlavorText(isCheating)
+            updateFlavorText()
         }, 2500)
         thoughtInterval.current = thoughtTick
 
         // Initial thought
-        updateFlavorText(isCheating)
+        updateFlavorText()
     }
 
-    const updateFlavorText = (isCheating: boolean) => {
+    const updateFlavorText = () => {
         let pool = [...FLAVOR_TEXTS.low_knowledge]
 
         if (stats.knowledge > 60) pool = [...FLAVOR_TEXTS.high_knowledge]
         if (stats.stress > 80) pool = [...pool, ...FLAVOR_TEXTS.high_stress]
-        if (isCheating) pool = [...pool, ...FLAVOR_TEXTS.cheat_success]
+        if (isCheatingActive) pool = [...pool, ...FLAVOR_TEXTS.cheat_success]
+        if (isLuckyGuessing) pool = [...pool, ...FLAVOR_TEXTS.lucky_guess]
 
         const randomText = pool[Math.floor(Math.random() * pool.length)]
         setCurrentThought(randomText)
@@ -257,14 +267,14 @@ export default function ExamScreen({ onFinished }: { onFinished?: () => void }) 
         setStage('submission')
         playSfx('/assets/sounds/bell.mp3') // Tiếng trống hết giờ
 
-        // Tính toán chỉ số cuối cùng
+        // Tính toán chỉ số cuối cùng (Final Adjustments)
         let finalKnowledge = stats.knowledge
 
         // Logic Flag impacts
         if (flags.deep_understanding) finalKnowledge += 10
-        if (flags.surface_learning) finalKnowledge -= 5 // Học vẹt dễ quên
-        if (flags.all_in_final_night) finalKnowledge -= 10 // Mệt quá làm bài kém
-        if (flags.stomach_ache) finalKnowledge -= 15 // Đau bụng làm bài kém
+        if (flags.surface_learning) finalKnowledge -= 5
+        if (flags.all_in_final_night) finalKnowledge -= 10 // Mệt quá
+        if (flags.stomach_ache) finalKnowledge -= 15 // Đau bụng
 
         // Update stats thầm lặng để store tính ending
         updateStats({ knowledge: Math.max(0, Math.min(100, finalKnowledge - stats.knowledge)) })
@@ -333,58 +343,66 @@ export default function ExamScreen({ onFinished }: { onFinished?: () => void }) 
                     </motion.div>
                 )}
 
-                {/* --- STAGE: CHEAT DECISION --- */}
-                {stage === 'cheat_decision' && (
+                {/* --- STAGE: DECISION (CHIẾN THUẬT) --- */}
+                {stage === 'decision' && (
                     <motion.div
-                        key="cheat"
+                        key="decision"
                         initial={{ opacity: 0, y: 50 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -50 }}
-                        className="max-w-lg w-full bg-neutral-900 border border-red-500/50 p-8 rounded-2xl shadow-2xl z-10 relative overflow-hidden"
+                        className="max-w-lg w-full bg-neutral-900 border border-white/20 p-8 rounded-2xl shadow-2xl z-10 relative overflow-hidden"
                     >
-                        <div className="absolute top-0 left-0 w-full h-1 bg-red-500 animate-pulse" />
+                        <h2 className="text-2xl font-bold text-center mb-6">CHIẾN THUẬT LÀM BÀI</h2>
+                        <div className="space-y-4">
 
-                        <div className="flex items-center gap-4 mb-6">
-                            <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center text-red-500">
-                                <TriangleAlert className="w-6 h-6" />
-                            </div>
-                            <div>
-                                <h2 className="text-2xl font-bold text-white">CƠ HỘI NGUY HIỂM</h2>
-                                <p className="text-red-400 text-sm">Giám thị đang lơ là...</p>
-                            </div>
-                        </div>
+                            {/* OPTION 1: DÙNG PHAO (Chỉ hiện nếu có phao) */}
+                            {flags.has_cheat_sheet && (
+                                <button
+                                    onClick={() => handleDecision('cheat')}
+                                    className="w-full p-4 bg-red-900/40 border border-red-500 hover:bg-red-800/60 rounded-xl text-left group transition-colors flex items-center gap-4"
+                                >
+                                    <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 font-bold text-xl">😈</div>
+                                    <div>
+                                        <div className="font-bold text-red-300 group-hover:text-white text-lg">Dùng phao thi</div>
+                                        <div className="text-xs text-neutral-400 mt-1">Rủi ro 50%: Bị đình chỉ hoặc Điểm cao.</div>
+                                    </div>
+                                </button>
+                            )}
 
-                        <p className="text-neutral-300 mb-8 leading-relaxed">
-                            Trong túi áo bạn là tờ phao thi đã chuẩn bị. Sử dụng nó có thể giúp bạn qua môn dễ dàng,
-                            nhưng nếu bị bắt, mọi thứ sẽ chấm hết (Đình chỉ thi).
-                        </p>
+                            {/* OPTION 2: KHOANH BỪA (Hiện nếu kiến thức < 50) */}
+                            {stats.knowledge < 50 && (
+                                <button
+                                    onClick={() => handleDecision('guess')}
+                                    className="w-full p-4 bg-yellow-900/40 border border-yellow-500 hover:bg-yellow-800/60 rounded-xl text-left group transition-colors flex items-center gap-4"
+                                >
+                                    <div className="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center text-yellow-400 font-bold text-xl">🎲</div>
+                                    <div>
+                                        <div className="font-bold text-yellow-300 group-hover:text-white text-lg">Khoanh bừa cầu may</div>
+                                        <div className="text-xs text-neutral-400 mt-1">Rủi ro 50%: Qua môn vớt vát hoặc Trượt.</div>
+                                    </div>
+                                </button>
+                            )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <button
-                                onClick={() => handleCheatDecision(false)}
-                                className="group relative px-6 py-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 transition-all border border-white/5"
-                            >
-                                <div className="flex items-center justify-center gap-2 font-bold text-white">
-                                    <Gavel className="w-4 h-4" />
-                                    Tự lực cánh sinh
-                                </div>
-                                <div className="text-xs text-neutral-500 mt-1 group-hover:text-neutral-400">
-                                    Giữ lại danh dự (Stress giảm)
-                                </div>
-                            </button>
+                            {/* OPTION 3: TỰ TIN (Hiện nếu kiến thức >= 50) */}
+                            {stats.knowledge >= 50 && (
+                                <button
+                                    onClick={() => handleDecision('confident')}
+                                    className="w-full p-4 bg-blue-900/40 border border-blue-500 hover:bg-blue-800/60 rounded-xl text-left group transition-colors flex items-center gap-4"
+                                >
+                                    <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold text-xl">🧠</div>
+                                    <div>
+                                        <div className="font-bold text-blue-300 group-hover:text-white text-lg">Tự tin làm bài</div>
+                                        <div className="text-xs text-neutral-400 mt-1">Dựa vào thực lực ôn tập ({Math.round(stats.knowledge)} điểm).</div>
+                                    </div>
+                                </button>
+                            )}
 
-                            <button
-                                onClick={() => handleCheatDecision(true)}
-                                className="group relative px-6 py-4 rounded-xl bg-red-900/50 hover:bg-red-800/50 transition-all border border-red-500/30"
-                            >
-                                <div className="flex items-center justify-center gap-2 font-bold text-red-100">
-                                    <Dices className="w-4 h-4" />
-                                    Dùng phao thi
+                            {/* Fallback Warning if stuck (Should not happen if logic is correct) */}
+                            {stats.knowledge < 50 && !flags.has_cheat_sheet && (
+                                <div className="text-center text-xs text-neutral-500 mt-2">
+                                    *Bạn không đủ kiến thức để tự tin, buộc phải chọn Khoanh bừa.
                                 </div>
-                                <div className="text-xs text-red-400 mt-1 group-hover:text-red-300">
-                                    50% bị bắt (Knowledge tăng mạnh)
-                                </div>
-                            </button>
+                            )}
                         </div>
                     </motion.div>
                 )}
@@ -441,6 +459,7 @@ export default function ExamScreen({ onFinished }: { onFinished?: () => void }) 
                                 <div>
                                     <div className="text-xs text-neutral-400 uppercase tracking-wider">Trạng thái</div>
                                     <div className="font-bold text-lg">Đang làm bài...</div>
+                                    <div className="text-xs text-blue-300 italic">{resultText}</div>
                                 </div>
                             </div>
                             <div className="text-right">
